@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from football_predictor.backtest import load_json, run_backtest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DATA_PATH = ROOT / "data" / "ucl_semifinals_sample.json"
 DEFAULT_CONFIG_PATH = ROOT / "configs" / "default.json"
 WEB_ROOT = ROOT / "web"
