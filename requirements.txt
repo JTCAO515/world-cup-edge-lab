@@ -1,1 +1,1 @@
-# Zero dependencies — all code uses Python standard library only.
+# Zero dependencies — pure Python standard library only.
