@@ -1,406 +1,491 @@
 """
-World Cup Edge Lab — WSGI application for Vercel.
-
+World Cup Edge Lab — WSGI Prediction API
 Zero external dependencies. Pure Python standard library.
 """
 import json
-import math
-from datetime import datetime, timezone
-from pathlib import Path
+from json import dumps, loads
+import math as _m
+from datetime import datetime as _dt
+from pathlib import Path as _Path
 
 # ═══════════════════════════════════════════════════════
-# Paths
+# 1. FILE PATHS
 # ═══════════════════════════════════════════════════════
 
-_HERE = Path(__file__).resolve().parent
-_ROOT = _HERE.parent
-_DATA = str(_ROOT / "data" / "ucl_semifinals_sample.json")
-_CONFIG = str(_ROOT / "configs" / "default.json")
-_WEB = _ROOT / "web"
+THIS_DIR = _Path(__file__).resolve().parent
+ROOT = THIS_DIR.parent
+DATA_FILE = str(ROOT / "data" / "ucl_semifinals_sample.json")
+CONFIG_FILE = str(ROOT / "configs" / "default.json")
+WEB_DIR = ROOT / "web"
 
-_TEXT_EXTS = {".html", ".js", ".css", ".json", ".svg", ".txt", ".xml"}
-_CT_MAP = {
-    ".js": "application/javascript",
-    ".css": "text/css",
-    ".html": "text/html",
-    ".json": "application/json",
+MIME = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
     ".png": "image/png",
-    ".jpg": "image/jpeg",
     ".woff2": "font/woff2",
 }
+TEXT_SUFFIXES = {".html", ".js", ".css", ".json", ".svg", ".txt"}
 
 # ═══════════════════════════════════════════════════════
-# WSGI helpers
-# ═══════════════════════════════════════════════════════
-
-
-def _json(start, data, status="200 OK"):
-    body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-    start(status, [
-        ("Content-Type", "application/json; charset=utf-8"),
-        ("Content-Length", str(len(body))),
-    ])
-    return [body]
-
-
-def _static(environ, start, path):
-    rel = "index.html" if path in ("", "/") else path.lstrip("/")
-    fp = _WEB / rel
-    if not fp.exists() or not fp.is_file():
-        return None
-
-    ct = _CT_MAP.get(fp.suffix, "application/octet-stream")
-    body = fp.read_bytes()
-
-    start("200 OK", [
-        ("Content-Type", ct),
-        ("Content-Length", str(len(body))),
-        ("Cache-Control", "public, max-age=3600"),
-    ])
-    return [body]
-
-
-def _read_body(environ):
-    length = int(environ.get("CONTENT_LENGTH", 0))
-    if length <= 0:
-        return {}
-    raw = environ["wsgi.input"].read(length)
-    if not raw:
-        return {}
-    return json.loads(raw.decode("utf-8"))
-
-
-# ═══════════════════════════════════════════════════════
-# Algorithm — Poisson / Scorelines
+# 2. POISSON CORE — Scoreline Probability Engine
 # ═══════════════════════════════════════════════════════
 
 
-def poisson_pmf(k, lam):
+def poisson_prob(k, intensity):
+    """P(X=k) for Poisson(intensity)"""
     if k < 0:
         return 0.0
-    if lam < 0:
-        raise ValueError("lambda must be non-negative")
-    return math.exp(-lam) * lam**k / math.factorial(k)
+    return _m.exp(-intensity) * (intensity ** k) / _m.factorial(k)
 
 
-def _norm(m):
-    t = sum(sum(r) for r in m)
-    if t <= 0:
-        raise ValueError("zero probability mass")
-    return [[c / t for c in r] for r in m]
+def score_grid(intensity_a, intensity_b, max_g=10):
+    """Independent Poisson grid: outer product of two marginals."""
+    row_probs = [poisson_prob(g, intensity_a) for g in range(max_g + 1)]
+    col_probs = [poisson_prob(g, intensity_b) for g in range(max_g + 1)]
+    grid = [[row_probs[i] * col_probs[j] for j in range(max_g + 1)] for i in range(max_g + 1)]
+    return grid
 
 
-def independent_poisson_matrix(xa, xb, mg=10):
-    m = []
-    for ga in range(mg + 1):
-        pa = poisson_pmf(ga, xa)
-        m.append([pa * poisson_pmf(gb, xb) for gb in range(mg + 1)])
-    return _norm(m)
-
-
-def bivariate_poisson_matrix(xa, xb, sh=0.0, mg=10):
-    if sh < 0 or sh > min(xa, xb):
-        raise ValueError("invalid shared_lambda")
-    ia, ib = xa - sh, xb - sh
-    m = []
-    for ga in range(mg + 1):
+def bivariate_grid(intensity_a, intensity_b, shared=0.0, max_g=10):
+    """
+    Bivariate Poisson: goals share a common shock component.
+    Var[X] = Var[Y] = lambda_ind + shared, Cov[X,Y] = shared.
+    """
+    iz_a = intensity_a - shared
+    iz_b = intensity_b - shared
+    grid = []
+    for ga in range(max_g + 1):
         row = []
-        for gb in range(mg + 1):
-            p = 0.0
+        for gb in range(max_g + 1):
+            total = 0.0
             for s in range(min(ga, gb) + 1):
-                p += poisson_pmf(s, sh) * poisson_pmf(ga - s, ia) * poisson_pmf(gb - s, ib)
-            row.append(p)
-        m.append(row)
-    return _norm(m)
+                p_shared = poisson_prob(s, shared)
+                p_rem_a = poisson_prob(ga - s, iz_a)
+                p_rem_b = poisson_prob(gb - s, iz_b)
+                total += p_shared * p_rem_a * p_rem_b
+            row.append(total)
+        grid.append(row)
+    return grid
 
 
-def aggregate_markets(matrix):
-    aw = dr = bw = ov = un = 0.0
-    for ga, row in enumerate(matrix):
+def normalize_grid(grid):
+    """Normalize so all cells sum to 1."""
+    s = sum(cell for row in grid for cell in row)
+    if s <= 0:
+        raise ValueError("Zero total probability in grid")
+    return [[cell / s for cell in row] for row in grid]
+
+
+def select_grid_model(intensity_a, intensity_b, config):
+    """Pick independent or bivariate Poisson based on config."""
+    max_g = int(config.get("max_goals", 10))
+    mode = config.get("scoreline_model", "independent_poisson")
+    if mode == "bivariate_poisson":
+        sh = min(float(config.get("shared_lambda", 0.0)), intensity_a, intensity_b)
+        raw = bivariate_grid(intensity_a, intensity_b, shared=sh, max_g=max_g)
+    else:
+        raw = score_grid(intensity_a, intensity_b, max_g=max_g)
+    return normalize_grid(raw)
+
+
+def aggregate_outcomes(grid):
+    """From score grid → win/draw/loss + over/under 2.5."""
+    home = draw = away = over = under = 0.0
+    for ga, row in enumerate(grid):
         for gb, p in enumerate(row):
             if ga > gb:
-                aw += p
+                home += p
             elif ga == gb:
-                dr += p
+                draw += p
             else:
-                bw += p
+                away += p
             if ga + gb > 2.5:
-                ov += p
+                over += p
             else:
-                un += p
-    return {"team_a_win": aw, "draw": dr, "team_b_win": bw, "over_2_5": ov, "under_2_5": un}
+                under += p
+    return {"home_win": home, "draw": draw, "away_win": away, "over_2_5": over, "under_2_5": under}
 
 
-# ── Odds ────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════
+# 3. ODDS PROCESSING
+# ═══════════════════════════════════════════════════════
 
 
-def dec_to_prob(odds):
-    if odds <= 1:
-        raise ValueError("decimal_odds must be > 1")
-    return 1.0 / odds
+def odds_to_probability(decimal):
+    if decimal <= 1.0:
+        raise ValueError(f"Decimal odds must exceed 1, got {decimal}")
+    return 1.0 / decimal
 
 
-def remove_overround(odds_map):
-    implied = {k: dec_to_prob(v) for k, v in odds_map.items()}
-    t = sum(implied.values())
-    if t <= 0:
-        raise ValueError("no implied probability")
-    return {k: v / t for k, v in implied.items()}
+def devig(price_book):
+    """Remove overround: divide each implied prob by total."""
+    implied = {k: odds_to_probability(v) for k, v in price_book.items()}
+    total = sum(implied.values())
+    if total <= 0:
+        raise ValueError("Zero total implied probability")
+    return {k: v / total for k, v in implied.items()}
 
 
-# ── Recommendations ─────────────────────────────────────
+def extract_fair_probs(snapshot):
+    """From an odds snapshot dict → devigged probabilities."""
+    result = {}
+    if not snapshot:
+        return result
+    if "h2h" in snapshot:
+        result.update(devig(snapshot["h2h"]))
+    if "totals" in snapshot:
+        result.update(devig(snapshot["totals"]))
+    return result
 
 
-def _clamp(v, lo, hi):
-    return max(lo, min(hi, v))
+# ═══════════════════════════════════════════════════════
+# 4. RECOMMENDATION ENGINE
+# ═══════════════════════════════════════════════════════
 
 
-def _label(v):
-    if v >= 85:
+def bound(val, lo=0.0, hi=1.0):
+    return max(lo, min(hi, val))
+
+
+def value_label(score):
+    if score >= 85:
         return "strong"
-    if v >= 70:
+    if score >= 70:
         return "medium"
-    if v >= 55:
+    if score >= 55:
         return "weak"
-    if v >= 40:
+    if score >= 40:
         return "watch"
     return "avoid"
 
 
-def score_recommendation(mp, mkp, lc=1.0, fr=1.0, mc=1.0, rk=1.0):
-    edge = round(mp - mkp, 6)
-    conf = _clamp(lc, 0, 1) * _clamp(fr, 0, 1) * _clamp(mc, 0, 1) * _clamp(rk, 0, 1)
-    val = int(round(_clamp((60.0 + edge * 500.0) * conf, 0, 100)))
-    return {"edge": edge, "value": val, "label": _label(val)}
+def compute_recommendation(model_prob, market_prob,
+                           lineup_conf=1.0, data_freshness=1.0,
+                           model_confidence=1.0, risk=1.0):
+    """
+    Edge = model - market (positive = model sees value)
+    Score = (60 + edge*500) * confidence multipliers
+    """
+    edge = round(model_prob - market_prob, 6)
+    mult = bound(lineup_conf) * bound(data_freshness) * bound(model_confidence) * bound(risk)
+    raw = (60.0 + edge * 500.0) * mult
+    score = int(round(bound(raw, 0, 100)))
+    return {"edge": edge, "value": score, "label": value_label(score)}
 
 
-# ── Timegate ────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════
+# 5. TIMEGATE — Historical Simulation
+# ═══════════════════════════════════════════════════════
 
 
-def _pts(v):
-    if v is None:
+def parse_iso(value):
+    if value is None:
         return None
-    return datetime.fromisoformat(v.replace("Z", "+00:00"))
+    return _dt.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def _ea():
-    return {"future_records": 0, "untimestamped_records": 0, "visible_records": 0}
+def fresh_audit():
+    return {"future": 0, "untimed": 0, "visible": 0}
 
 
-def _ma(*a):
-    m = _ea()
-    for x in a:
-        for k, v in x.items():
-            m[k] = m.get(k, 0) + v
-    return m
+def union_audits(*args):
+    u = fresh_audit()
+    for a in args:
+        u["future"] += a.get("future", 0)
+        u["untimed"] += a.get("untimed", 0)
+        u["visible"] += a.get("visible", 0)
+    return u
 
 
-def filter_available_records(records, ck_time, cats=None):
-    ck = _pts(ck_time)
-    cs = set(cats) if cats else {"injury", "lineup", "odds", "result", "weather"}
-    v, a = [], _ea()
-    for r in records:
-        obs = _pts(r.get("observed_at"))
-        eff = _pts(r.get("effective_at"))
-        cat = r.get("category")
-        if obs is None and cat in cs:
-            a["untimestamped_records"] += 1
+def filter_to_checkpoint(records, checkpoint_time,
+                         categories=None):
+    """
+    Given a list of records and a checkpoint time,
+    return only those that would have been visible at that time.
+    """
+    ck = parse_iso(checkpoint_time)
+    sensitive = categories if categories else {"lineup", "odds", "injury", "result", "weather"}
+    visible = []
+    audit = fresh_audit()
+    for rec in records:
+        obs_at = parse_iso(rec.get("observed_at"))
+        eff_at = parse_iso(rec.get("effective_at"))
+        cat = rec.get("category", "")
+
+        if obs_at is None and cat in sensitive:
+            audit["untimed"] += 1
             continue
-        if obs is not None and obs > ck:
-            a["future_records"] += 1
+        if obs_at is not None and obs_at > ck:
+            audit["future"] += 1
             continue
-        if eff is not None and eff > ck and r.get("confidence") != "projected":
-            a["future_records"] += 1
+        if eff_at is not None and eff_at > ck and rec.get("confidence") != "projected":
+            audit["future"] += 1
             continue
-        v.append(r)
-    a["visible_records"] = len(v)
-    return v, a
+        visible.append(rec)
+    audit["visible"] = len(visible)
+    return visible, audit
 
 
-# ── Backtest engine ─────────────────────────────────────
+# ═══════════════════════════════════════════════════════
+# 6. BACKTEST ENGINE
+# ═══════════════════════════════════════════════════════
 
 
-def load_json(path):
+def read_json(path):
     with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        return loads(f.read())
 
 
-def merge_config(cfg, overrides=None):
-    m = dict(cfg)
-    for k, v in (overrides or {}).items():
-        if isinstance(v, dict) and isinstance(m.get(k), dict):
-            n = dict(m[k])
-            n.update(v)
-            m[k] = n
+def deep_merge(base, overrides):
+    """Merge overrides into base dict (nested merge for dict values)."""
+    result = dict(base)
+    for key, val in (overrides or {}).items():
+        if isinstance(val, dict) and isinstance(result.get(key), dict):
+            merged = dict(result[key])
+            merged.update(val)
+            result[key] = merged
         else:
-            m[k] = v
-    return m
+            result[key] = val
+    return result
 
 
-_WDL = ("team_a_win", "draw", "team_b_win")
-_TOT = ("over_2_5", "under_2_5")
-
-
-def _latest(records):
+def latest_record(records):
     if not records:
         return None
-    return max(records, key=lambda r: _pts(r.get("observed_at")).timestamp())
+    return max(records, key=lambda r: parse_iso(r["observed_at"]).timestamp())
 
 
-def _sc_matrix(xa, xb, cfg):
-    mg = int(cfg.get("max_goals", 10))
-    if cfg.get("scoreline_model") == "bivariate_poisson":
-        sl = min(float(cfg.get("shared_lambda", 0.0)), xa, xb)
-        return bivariate_poisson_matrix(xa, xb, sh=sl, mg=mg)
-    return independent_poisson_matrix(xa, xb, mg=mg)
+def build_checkpoint(match, checkpoint, config):
+    """Run the full prediction pipeline for one checkpoint of one match."""
+    # Timegate: filter to visible data
+    lineups, odds, injuries, audit_trio = [], [], [], []
+    ld, la = filter_to_checkpoint(match.get("lineup_updates", []), checkpoint["time"])
+    od, oa = filter_to_checkpoint(match.get("odds_snapshots", []), checkpoint["time"])
+    ij, ia = filter_to_checkpoint(match.get("injury_updates", []), checkpoint["time"])
+    audit = union_audits(la, oa, ia)
 
+    # Latest available data
+    best_lineup = latest_record(ld)
+    best_odds = latest_record(od)
 
-def _mkp(osnap):
-    if osnap is None:
-        return {}
-    p = {}
-    if "h2h" in osnap:
-        p.update(remove_overround(osnap["h2h"]))
-    if "totals" in osnap:
-        p.update(remove_overround(osnap["totals"]))
-    return p
+    # Apply xG adjustments
+    impact = float(config.get("lineup_impact_multiplier", 1.0))
+    floor_xg = float(config.get("minimum_xg", 0.2))
+    xg_h = float(match["base_xg"]["team_a"])
+    xg_a = float(match["base_xg"]["team_b"])
 
+    if best_lineup:
+        xg_h += float(best_lineup.get("team_a_xg_delta", 0.0)) * impact
+        xg_a += float(best_lineup.get("team_b_xg_delta", 0.0)) * impact
+    for injury in ij:
+        xg_h += float(injury.get("team_a_xg_delta", 0.0)) * impact
+        xg_a += float(injury.get("team_b_xg_delta", 0.0)) * impact
 
-def _build_recs(mp, mkp, ls, cn, cfg):
+    xg_h = max(floor_xg, xg_h)
+    xg_a = max(floor_xg, xg_a)
+
+    # Scoreline grid
+    grid = select_grid_model(xg_h, xg_a, config)
+    model_probs = aggregate_outcomes(grid)
+
+    # Market probabilities
+    market_probs = extract_fair_probs(best_odds)
+
+    # Build recommendations
+    lineup_status = best_lineup.get("confidence", "unknown") if best_lineup else "unknown"
+    lineup_conf_map = config["lineup_confidence"]
+    lc = lineup_conf_map.get(lineup_status, lineup_conf_map.get("unknown", 0.5))
+    freshness = config["data_freshness"].get(checkpoint["name"], 0.8)
+    mc = float(config.get("model_confidence", 1.0))
+    rk = float(config.get("risk_modifier", 1.0))
+
     recs = []
-    lc = cfg["lineup_confidence"].get(ls, cfg["lineup_confidence"]["unknown"])
-    df = cfg["data_freshness"].get(cn, 0.8)
-    for out, mpv in mp.items():
-        if out not in mkp:
+    for outcome, model_val in model_probs.items():
+        if outcome not in market_probs:
             continue
-        r = score_recommendation(mpv, mkp[out], lc=lc, fr=df,
-                                 mc=cfg.get("model_confidence", 1.0),
-                                 rk=cfg.get("risk_modifier", 1.0))
-        r.update({"market": "h2h" if out in _WDL else "totals",
-                  "outcome": out,
-                  "model_probability": round(mpv, 6),
-                  "market_probability": round(mkp[out], 6),
-                  "reason": f"Model edge adjusted by {ls} lineup confidence."})
-        recs.append(r)
-    if not recs:
-        return {"market": None, "outcome": None, "value": None, "label": "unavailable",
-                "edge": None, "reason": "No usable market odds."}
-    return max(recs, key=lambda x: (x["value"], x["edge"]))
+        rec = compute_recommendation(model_val, market_probs[outcome],
+                                     lineup_conf=lc, data_freshness=freshness,
+                                     model_confidence=mc, risk=rk)
+        rec["market"] = "h2h" if outcome in ("home_win", "draw", "away_win") else "totals"
+        rec["outcome"] = outcome
+        rec["model_prob"] = round(model_val, 6)
+        rec["market_prob"] = round(market_probs[outcome], 6)
+        rec["reason"] = f"Model edge vs market, adjusted for {lineup_status} lineup"
+        recs.append(rec)
+
+    best_rec = max(recs, key=lambda x: (x["value"], x["edge"])) if recs else {
+        "market": None, "outcome": None, "value": None, "label": "unavailable",
+        "edge": None, "reason": "No market odds at this checkpoint"
+    }
+
+    return {
+        "time": checkpoint["time"],
+        "expected_goals": {"home": round(xg_h, 4), "away": round(xg_a, 4)},
+        "lineup_status": lineup_status,
+        "lineup_note": best_lineup.get("note") if best_lineup else None,
+        "probabilities": {k: round(v, 6) for k, v in model_probs.items()},
+        "market_probs": {k: round(v, 6) for k, v in market_probs.items()},
+        "recommendation": best_rec,
+        "data_audit": audit,
+    }
 
 
-def _vi(match, ct):
-    lu, la = filter_available_records(match.get("lineup_updates", []), ct)
-    od, oa = filter_available_records(match.get("odds_snapshots", []), ct)
-    ij, ia = filter_available_records(match.get("injury_updates", []), ct)
-    return lu, od, ij, _ma(la, oa, ia)
-
-
-def _ck_report(match, ck, cfg):
-    lu, od, ij, audit = _vi(match, ck["time"])
-    llu = _latest(lu)
-    lod = _latest(od)
-    im = float(cfg.get("lineup_impact_multiplier", 1.0))
-    mx = float(cfg.get("minimum_xg", 0.2))
-    xa = float(match["base_xg"]["team_a"])
-    xb = float(match["base_xg"]["team_b"])
-    if llu is not None:
-        xa += float(llu.get("team_a_xg_delta", 0.0)) * im
-        xb += float(llu.get("team_b_xg_delta", 0.0)) * im
-    for ijr in ij:
-        xa += float(ijr.get("team_a_xg_delta", 0.0)) * im
-        xb += float(ijr.get("team_b_xg_delta", 0.0)) * im
-    xa, xb = max(mx, xa), max(mx, xb)
-    matrix = _sc_matrix(xa, xb, cfg)
-    mp = aggregate_markets(matrix)
-    mkpv = _mkp(lod)
-    ls = llu.get("confidence", "unknown") if llu else "unknown"
-    return {"time": ck["time"],
-            "expected_goals": {"team_a": round(xa, 4), "team_b": round(xb, 4)},
-            "lineup_status": ls,
-            "lineup_note": llu.get("note") if llu else None,
-            "probabilities": {k: round(v, 6) for k, v in mp.items()},
-            "market_probabilities": {k: round(v, 6) for k, v in mkpv.items()},
-            "best_recommendation": _build_recs(mp, mkpv, ls, ck["name"], cfg),
-            "leakage_audit": audit}
-
-
-def _aw(result):
+def actual_outcome(result):
     if result["team_a_goals"] > result["team_b_goals"]:
-        return "team_a_win"
+        return "home_win"
     if result["team_a_goals"] == result["team_b_goals"]:
         return "draw"
-    return "team_b_win"
+    return "away_win"
 
 
-def _at(result):
+def actual_total(result):
     return "over_2_5" if result["team_a_goals"] + result["team_b_goals"] > 2.5 else "under_2_5"
 
 
-def run_backtest(data_path, config_path, overrides=None):
-    dataset = load_json(data_path)
-    cfg = merge_config(load_json(config_path), overrides)
-    matches, audit = [], _ea()
-    wb, tb = [], []
-    for m in dataset["matches"]:
-        cr = {}
-        for ck in m["checkpoints"]:
-            r = _ck_report(m, ck, cfg)
-            cr[ck["name"]] = r
-            audit = _ma(audit, r["leakage_audit"])
-        fn = m["checkpoints"][-1]["name"]
-        fp = cr[fn]["probabilities"]
-        wb.append(sum((fp[k] - (1.0 if k == _aw(m["result"]) else 0.0)) ** 2 for k in _WDL))
-        tb.append(sum((fp[k] - (1.0 if k == _at(m["result"]) else 0.0)) ** 2 for k in _TOT))
-        matches.append({"id": m["id"], "team_a": m["team_a"], "team_b": m["team_b"],
-                        "result": m["result"], "checkpoints": cr})
-    return {"parameter_set": cfg["parameter_set"],
-            "scoreline_model": cfg.get("scoreline_model", "independent_poisson"),
-            "effective_config": cfg,
-            "matches": matches,
-            "metrics": {"brier_wdl": round(sum(wb) / len(wb), 6) if wb else None,
-                        "brier_over_under_2_5": round(sum(tb) / len(tb), 6) if tb else None},
-            "leakage_audit": audit}
+def brier_score(prob_vec, correct_key, category_keys):
+    """Lower is better. Sum of squared errors."""
+    return sum((prob_vec[k] - (1.0 if k == correct_key else 0.0)) ** 2 for k in category_keys)
+
+
+def run_predictions(data_path, config_path, overrides=None):
+    """
+    Execute full backtest: for each match × checkpoint,
+    simulate what was knowable → generate predictions → compare to actuals.
+    """
+    dataset = read_json(data_path)
+    config = deep_merge(read_json(config_path), overrides)
+    total_audit = fresh_audit()
+    match_results = []
+    brier_wdl_list = []
+    brier_total_list = []
+    WDL = ("home_win", "draw", "away_win")
+    TOT = ("over_2_5", "under_2_5")
+
+    for match in dataset["matches"]:
+        ck_reports = {}
+        for ck in match["checkpoints"]:
+            report = build_checkpoint(match, ck, config)
+            ck_reports[ck["name"]] = report
+            total_audit = union_audits(total_audit, report["data_audit"])
+
+        # Evaluate final checkpoint
+        last_ck = match["checkpoints"][-1]["name"]
+        final_probs = ck_reports[last_ck]["probabilities"]
+        brier_wdl_list.append(brier_score(final_probs, actual_outcome(match["result"]), WDL))
+        brier_total_list.append(brier_score(final_probs, actual_total(match["result"]), TOT))
+
+        match_results.append({
+            "id": match["id"],
+            "home": match["team_a"],
+            "away": match["team_b"],
+            "result": match["result"],
+            "checkpoints": ck_reports,
+        })
+
+    def avg_careful(lst):
+        return round(sum(lst) / len(lst), 6) if lst else None
+
+    return {
+        "model": config["parameter_set"],
+        "scoreline_model": config.get("scoreline_model", "independent_poisson"),
+        "config_used": config,
+        "matches": match_results,
+        "accuracy": {
+            "brier_wdl": avg_careful(brier_wdl_list),
+            "brier_ou": avg_careful(brier_total_list),
+        },
+        "data_quality": total_audit,
+    }
 
 
 # ═══════════════════════════════════════════════════════
-# WSGI Application
+# 7. WSGI APPLICATION
 # ═══════════════════════════════════════════════════════
+
+
+def json_ok(start, data):
+    body = dumps(data, ensure_ascii=False).encode("utf-8")
+    start("200 OK", [("Content-Type", "application/json; charset=utf-8"),
+                     ("Content-Length", str(len(body)))])
+    return [body]
+
+
+def json_error(start, msg, status="500"):
+    body = dumps({"error": msg}, ensure_ascii=False).encode("utf-8")
+    start(f"{status}", [("Content-Type", "application/json; charset=utf-8"),
+                        ("Content-Length", str(len(body)))])
+    return [body]
+
+
+def read_post_body(environ):
+    length = int(environ.get("CONTENT_LENGTH", "0"))
+    if length <= 0:
+        return {}
+    raw = environ["wsgi.input"].read(length)
+    return loads(raw.decode("utf-8")) if raw else {}
+
+
+def serve_static(environ, start, filepath):
+    """Try to serve a static file. Returns response or None."""
+    if filepath in ("", "/"):
+        filepath = "index.html"
+    target = WEB_DIR / filepath.lstrip("/")
+    if not target.exists() or not target.is_file():
+        return None
+
+    body = target.read_bytes()
+    ct = MIME.get(target.suffix, "application/octet-stream")
+
+    # Handle text vs binary
+    if target.suffix in TEXT_SUFFIXES:
+        body_str = body.decode("utf-8")
+        start("200 OK", [("Content-Type", ct),
+                         ("Content-Length", str(len(body_str))),
+                         ("Cache-Control", "public, max-age=3600")])
+        return [body_str.encode("utf-8")]
+    else:
+        start("200 OK", [("Content-Type", ct),
+                         ("Content-Length", str(len(body))),
+                         ("Cache-Control", "public, max-age=3600")])
+        return [body]
 
 
 def app(environ, start_response):
-    """Vercel WSGI entry point."""
+    """WSGI entry point for Vercel."""
     path = environ.get("PATH_INFO", "/")
     method = environ.get("REQUEST_METHOD", "GET")
 
-    # ── Health ──
+    # Health check
     if path == "/api/health":
-        return _json(start_response, {"status": "ok", "version": "1.0.0"})
+        return json_ok(start_response, {"status": "alive", "version": "1.0.0"})
 
-    # ── Config ──
+    # Get config
     if path == "/api/config" and method == "GET":
         try:
-            return _json(start_response, load_json(_CONFIG))
-        except Exception as e:
-            return _json(start_response, {"error": str(e)}, "500 Internal Server Error")
+            return json_ok(start_response, read_json(CONFIG_FILE))
+        except Exception as ex:
+            return json_error(start_response, str(ex))
 
-    # ── Backtest ──
-    if path == "/api/backtest":
+    # Run predictions
+    if path == "/api/predict":
         try:
-            params = _read_body(environ)
-            report = run_backtest(_DATA, _CONFIG, params.get("config_overrides", {}))
-            return _json(start_response, {
+            params = read_post_body(environ)
+            report = run_predictions(DATA_FILE, CONFIG_FILE, params.get("overrides", {}))
+            return json_ok(start_response, {
                 "report": report,
-                "effective_config": report.get("effective_config", {}),
+                "config": report.get("config_used", {}),
             })
-        except Exception as e:
-            return _json(start_response, {"error": str(e)}, "500 Internal Server Error")
+        except Exception as ex:
+            return json_error(start_response, str(ex))
 
-    # ── Static files ──
-    result = _static(environ, start_response, path)
+    # Static files
+    result = serve_static(environ, start_response, path)
     if result is not None:
         return result
 
-    # ── 404 ──
-    return _json(start_response, {"error": "Not Found"}, "404 Not Found")
+    # 404
+    return json_error(start_response, "Not found", "404")
