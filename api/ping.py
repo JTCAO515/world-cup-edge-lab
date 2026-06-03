@@ -1,2 +1,3 @@
-def handler(event, context):
-    return {"statusCode": 200, "headers": {"content-type": "application/json"}, "body": '{"status":"ok"}'}
+def app(environ, start_response):
+    start_response("200 OK", [("Content-Type", "application/json")])
+    return [b'{"status":"ok"}']
