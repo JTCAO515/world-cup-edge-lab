@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>World Cup Edge Lab</title>
+    <link rel="stylesheet" href="/app.css">
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark"></span>
+          <span>World Cup Edge Lab</span>
+        </div>
+        <nav class="tabs" aria-label="主导航">
+          <button class="active" type="button" data-view="prediction">比赛预测</button>
+          <button type="button" data-view="backtest">回测实验</button>
+          <button type="button" data-view="tuning">参数调优</button>
+          <button type="button" data-view="audit">数据审计</button>
+        </nav>
+        <div class="status"><span></span><strong id="runStatus">加载中</strong></div>
+      </header>
+
+      <div class="layout">
+        <aside class="sidebar">
+          <section>
+            <div class="section-title">比赛</div>
+            <div id="matchList" class="match-list"></div>
+          </section>
+
+          <section class="model-summary">
+            <div class="section-title">参数集</div>
+            <dl>
+              <div><dt>模型</dt><dd id="summaryModel">-</dd></div>
+              <div><dt>相关性</dt><dd id="summaryLambda">-</dd></div>
+              <div><dt>阵容权重</dt><dd id="summaryLineup">-</dd></div>
+              <div><dt>风险修正</dt><dd id="summaryRisk">-</dd></div>
+            </dl>
+          </section>
+        </aside>
+
+        <main class="main">
+          <div id="predictionView" class="view">
+            <section class="fixture-head">
+            <div>
+              <p class="eyebrow" id="fixtureMeta">-</p>
+              <h1 id="fixtureTitle">加载中</h1>
+            </div>
+            <div id="checkpointTabs" class="checkpoint-tabs"></div>
+            </section>
+
+            <section class="metric-grid">
+            <article class="metric">
+              <span>胜平负方向</span>
+              <strong id="wdlDirection">-</strong>
+              <small id="wdlNote">-</small>
+            </article>
+            <article class="metric">
+              <span>大小球方向</span>
+              <strong id="totalDirection">-</strong>
+              <small id="totalNote">-</small>
+            </article>
+            <article class="metric">
+              <span>期望进球</span>
+              <strong id="expectedGoals">-</strong>
+              <small id="xgNote">-</small>
+            </article>
+            <article class="metric">
+              <span>泄露防御</span>
+              <strong id="leakageCount">-</strong>
+              <small id="leakageNote">-</small>
+            </article>
+            </section>
+
+            <section class="work-grid">
+            <article class="panel">
+              <div class="panel-head">
+                <h2>概率分布</h2>
+                <span id="lineupStatus" class="pill">-</span>
+              </div>
+              <div id="probabilityRows" class="probability-list"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-head">
+                <h2>推荐队列</h2>
+                <span id="recommendationCount" class="muted">-</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>市场</th>
+                      <th>方向</th>
+                      <th>边际</th>
+                      <th>推荐</th>
+                    </tr>
+                  </thead>
+                  <tbody id="recommendationRows"></tbody>
+                </table>
+              </div>
+            </article>
+            </section>
+
+            <section class="panel full">
+            <div class="panel-head">
+              <h2>回测指标</h2>
+              <span class="muted">当前参数实时结果</span>
+            </div>
+            <div class="score-grid">
+              <div><span>胜平负 Brier</span><strong id="brierWdl">-</strong></div>
+              <div><span>大小球 Brier</span><strong id="brierTotal">-</strong></div>
+              <div><span>未来记录拦截</span><strong id="auditFuture">-</strong></div>
+              <div><span>可用记录</span><strong id="auditVisible">-</strong></div>
+            </div>
+            </section>
+          </div>
+
+          <div id="backtestView" class="view hidden">
+            <section class="view-head">
+              <div>
+                <p class="eyebrow">欧冠淘汰赛回测</p>
+                <h1>回测实验</h1>
+              </div>
+              <div class="dataset-chip" id="datasetChip">UEFA Champions League · 2025/26</div>
+            </section>
+
+            <section class="metric-grid">
+              <article class="metric">
+                <span>胜平负 Brier</span>
+                <strong id="backtestBrierWdl">-</strong>
+                <small>越低越好</small>
+              </article>
+              <article class="metric">
+                <span>大小球 Brier</span>
+                <strong id="backtestBrierTotal">-</strong>
+                <small>Over/Under 2.5</small>
+              </article>
+              <article class="metric">
+                <span>推荐变化</span>
+                <strong id="recommendationChanges">-</strong>
+                <small>T-48h 到 T-60m</small>
+              </article>
+              <article class="metric">
+                <span>泄露拦截</span>
+                <strong id="backtestLeaks">-</strong>
+                <small>未来数据未参与预测</small>
+              </article>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <h2>比赛回放结果</h2>
+                <span class="muted">当前参数实时计算</span>
+              </div>
+              <div class="table-wrap">
+                <table class="backtest-table">
+                  <thead>
+                    <tr>
+                      <th>比赛</th>
+                      <th>赛果</th>
+                      <th>T-48h 最佳方向</th>
+                      <th>T-60m 最佳方向</th>
+                      <th>变化</th>
+                    </tr>
+                  </thead>
+                  <tbody id="backtestRows"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="work-grid backtest-detail-grid">
+              <article class="panel">
+                <div class="panel-head">
+                  <h2>参数效果</h2>
+                  <span class="muted">拖动右侧滑杆后自动刷新</span>
+                </div>
+                <div id="parameterImpact" class="impact-list"></div>
+              </article>
+              <article class="panel">
+                <div class="panel-head">
+                  <h2>实验结论</h2>
+                  <span class="muted">样例级，不代表统计证明</span>
+                </div>
+                <p id="backtestNarrative" class="experiment-copy">-</p>
+              </article>
+            </section>
+          </div>
+
+          <div id="tuningView" class="view hidden">
+            <section class="view-head">
+              <div>
+                <p class="eyebrow">参数调优</p>
+                <h1>模型参数</h1>
+              </div>
+            </section>
+            <section class="panel">
+              <h2>当前可调参数</h2>
+              <p class="experiment-copy">右侧滑杆已经连接真实回测：平局相关性、阵容影响、风险修正、模型信心变化后，比赛预测和回测实验会同步刷新。</p>
+            </section>
+          </div>
+
+          <div id="auditView" class="view hidden">
+            <section class="view-head">
+              <div>
+                <p class="eyebrow">数据审计</p>
+                <h1>防数据泄露</h1>
+              </div>
+            </section>
+            <section class="panel">
+              <h2>时间戳过滤结果</h2>
+              <div class="score-grid">
+                <div><span>未来记录拦截</span><strong id="auditViewFuture">-</strong></div>
+                <div><span>缺时间戳记录</span><strong id="auditViewUntimestamped">-</strong></div>
+                <div><span>可用记录</span><strong id="auditViewVisible">-</strong></div>
+                <div><span>数据集比赛</span><strong id="auditViewMatches">-</strong></div>
+              </div>
+            </section>
+          </div>
+        </main>
+
+        <aside class="right-rail">
+          <section class="rail-section">
+            <h2>临场变化</h2>
+            <div id="timeline" class="timeline"></div>
+          </section>
+
+          <section class="rail-section">
+            <h2>快速调参</h2>
+            <div class="control">
+              <label for="scorelineModel">进球模型</label>
+              <select id="scorelineModel">
+                <option value="bivariate_poisson">双变量泊松</option>
+                <option value="independent_poisson">独立泊松</option>
+              </select>
+            </div>
+            <div class="control">
+              <div class="control-head"><label for="sharedLambda">平局相关性 λ</label><output id="sharedLambdaValue">0.14</output></div>
+              <input id="sharedLambda" type="range" min="0" max="0.35" step="0.01" value="0.14">
+            </div>
+            <div class="control">
+              <div class="control-head"><label for="lineupImpact">阵容影响权重</label><output id="lineupImpactValue">1.00</output></div>
+              <input id="lineupImpact" type="range" min="0.5" max="1.8" step="0.05" value="1">
+            </div>
+            <div class="control">
+              <div class="control-head"><label for="riskModifier">风险修正</label><output id="riskModifierValue">0.86</output></div>
+              <input id="riskModifier" type="range" min="0.45" max="1" step="0.01" value="0.86">
+            </div>
+            <div class="control">
+              <div class="control-head"><label for="modelConfidence">模型信心</label><output id="modelConfidenceValue">0.84</output></div>
+              <input id="modelConfidence" type="range" min="0.45" max="1" step="0.01" value="0.84">
+            </div>
+            <button id="resetButton" class="reset-button" type="button">恢复默认</button>
+          </section>
+
+          <section class="rail-section">
+            <h2>推荐解释</h2>
+            <p id="explanation" class="explanation">-</p>
+          </section>
+        </aside>
+      </div>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>

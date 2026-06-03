@@ -1,0 +1,19 @@
+{
+  "parameter_set": "default",
+  "scoreline_model": "bivariate_poisson",
+  "max_goals": 10,
+  "shared_lambda": 0.14,
+  "lineup_confidence": {
+    "unknown": 0.55,
+    "projected": 0.68,
+    "confirmed": 0.92
+  },
+  "data_freshness": {
+    "T-48h": 0.72,
+    "T-60m": 0.96
+  },
+  "model_confidence": 0.84,
+  "risk_modifier": 0.86,
+  "lineup_impact_multiplier": 1.0,
+  "minimum_xg": 0.2
+}

@@ -1,0 +1,216 @@
+{
+  "competition": "UEFA Champions League",
+  "season": "2025/26",
+  "notes": "Curated sample data for validating the local backtest workflow. Replace with sourced historical data before statistical tuning.",
+  "matches": [
+    {
+      "id": "ucl-2026-sf-psg-bayern-1",
+      "team_a": "Paris Saint-Germain",
+      "team_b": "Bayern Munich",
+      "kickoff": "2026-04-28T19:00:00+00:00",
+      "checkpoints": [
+        {"name": "T-48h", "time": "2026-04-26T19:00:00+00:00"},
+        {"name": "T-60m", "time": "2026-04-28T18:00:00+00:00"}
+      ],
+      "base_xg": {"team_a": 1.55, "team_b": 1.42},
+      "lineup_updates": [
+        {
+          "id": "psg-bayern-projected",
+          "category": "lineup",
+          "confidence": "projected",
+          "observed_at": "2026-04-26T12:00:00+00:00",
+          "effective_at": "2026-04-28T18:00:00+00:00",
+          "team_a_xg_delta": 0.0,
+          "team_b_xg_delta": 0.0,
+          "note": "Projected first-choice lineups."
+        },
+        {
+          "id": "psg-bayern-confirmed",
+          "category": "lineup",
+          "confidence": "confirmed",
+          "observed_at": "2026-04-28T17:55:00+00:00",
+          "team_a_xg_delta": 0.12,
+          "team_b_xg_delta": -0.08,
+          "note": "Confirmed lineup slightly improves PSG attack and reduces Bayern threat."
+        }
+      ],
+      "injury_updates": [
+        {
+          "id": "psg-bayern-postmatch-injury",
+          "category": "injury",
+          "confidence": "confirmed",
+          "observed_at": "2026-04-28T22:30:00+00:00",
+          "team_a_xg_delta": -0.2,
+          "note": "Deliberate future record for leakage defense testing."
+        }
+      ],
+      "odds_snapshots": [
+        {
+          "id": "psg-bayern-odds-open",
+          "category": "odds",
+          "observed_at": "2026-04-26T19:00:00+00:00",
+          "h2h": {"team_a_win": 2.35, "draw": 3.65, "team_b_win": 2.85},
+          "totals": {"over_2_5": 1.78, "under_2_5": 2.05}
+        },
+        {
+          "id": "psg-bayern-odds-lineup",
+          "category": "odds",
+          "observed_at": "2026-04-28T17:58:00+00:00",
+          "h2h": {"team_a_win": 2.22, "draw": 3.70, "team_b_win": 3.05},
+          "totals": {"over_2_5": 1.68, "under_2_5": 2.20}
+        }
+      ],
+      "result": {"team_a_goals": 5, "team_b_goals": 4}
+    },
+    {
+      "id": "ucl-2026-sf-atletico-arsenal-1",
+      "team_a": "Atletico Madrid",
+      "team_b": "Arsenal",
+      "kickoff": "2026-04-29T19:00:00+00:00",
+      "checkpoints": [
+        {"name": "T-48h", "time": "2026-04-27T19:00:00+00:00"},
+        {"name": "T-60m", "time": "2026-04-29T18:00:00+00:00"}
+      ],
+      "base_xg": {"team_a": 1.05, "team_b": 1.22},
+      "lineup_updates": [
+        {
+          "id": "atleti-arsenal-projected",
+          "category": "lineup",
+          "confidence": "projected",
+          "observed_at": "2026-04-27T12:30:00+00:00",
+          "effective_at": "2026-04-29T18:00:00+00:00",
+          "team_a_xg_delta": 0.0,
+          "team_b_xg_delta": 0.0,
+          "note": "Projected conservative Atletico setup."
+        },
+        {
+          "id": "atleti-arsenal-confirmed",
+          "category": "lineup",
+          "confidence": "confirmed",
+          "observed_at": "2026-04-29T17:54:00+00:00",
+          "team_a_xg_delta": -0.08,
+          "team_b_xg_delta": -0.04,
+          "note": "Confirmed lineups point to lower tempo."
+        }
+      ],
+      "injury_updates": [],
+      "odds_snapshots": [
+        {
+          "id": "atleti-arsenal-odds-open",
+          "category": "odds",
+          "observed_at": "2026-04-27T19:00:00+00:00",
+          "h2h": {"team_a_win": 3.00, "draw": 3.25, "team_b_win": 2.45},
+          "totals": {"over_2_5": 2.10, "under_2_5": 1.78}
+        },
+        {
+          "id": "atleti-arsenal-odds-lineup",
+          "category": "odds",
+          "observed_at": "2026-04-29T17:58:00+00:00",
+          "h2h": {"team_a_win": 3.15, "draw": 3.15, "team_b_win": 2.42},
+          "totals": {"over_2_5": 2.28, "under_2_5": 1.66}
+        }
+      ],
+      "result": {"team_a_goals": 1, "team_b_goals": 1}
+    },
+    {
+      "id": "ucl-2026-sf-arsenal-atletico-2",
+      "team_a": "Arsenal",
+      "team_b": "Atletico Madrid",
+      "kickoff": "2026-05-05T19:00:00+00:00",
+      "checkpoints": [
+        {"name": "T-48h", "time": "2026-05-03T19:00:00+00:00"},
+        {"name": "T-60m", "time": "2026-05-05T18:00:00+00:00"}
+      ],
+      "base_xg": {"team_a": 1.42, "team_b": 0.88},
+      "lineup_updates": [
+        {
+          "id": "arsenal-atleti-projected",
+          "category": "lineup",
+          "confidence": "projected",
+          "observed_at": "2026-05-03T13:00:00+00:00",
+          "effective_at": "2026-05-05T18:00:00+00:00",
+          "team_a_xg_delta": 0.0,
+          "team_b_xg_delta": 0.0,
+          "note": "Projected Arsenal pressure advantage."
+        },
+        {
+          "id": "arsenal-atleti-confirmed",
+          "category": "lineup",
+          "confidence": "confirmed",
+          "observed_at": "2026-05-05T17:53:00+00:00",
+          "team_a_xg_delta": 0.04,
+          "team_b_xg_delta": -0.05,
+          "note": "Confirmed lineups slightly favor Arsenal control."
+        }
+      ],
+      "injury_updates": [],
+      "odds_snapshots": [
+        {
+          "id": "arsenal-atleti-odds-open",
+          "category": "odds",
+          "observed_at": "2026-05-03T19:00:00+00:00",
+          "h2h": {"team_a_win": 1.82, "draw": 3.60, "team_b_win": 4.80},
+          "totals": {"over_2_5": 2.02, "under_2_5": 1.84}
+        },
+        {
+          "id": "arsenal-atleti-odds-lineup",
+          "category": "odds",
+          "observed_at": "2026-05-05T17:57:00+00:00",
+          "h2h": {"team_a_win": 1.78, "draw": 3.70, "team_b_win": 5.10},
+          "totals": {"over_2_5": 2.08, "under_2_5": 1.78}
+        }
+      ],
+      "result": {"team_a_goals": 1, "team_b_goals": 0}
+    },
+    {
+      "id": "ucl-2026-sf-bayern-psg-2",
+      "team_a": "Bayern Munich",
+      "team_b": "Paris Saint-Germain",
+      "kickoff": "2026-05-06T19:00:00+00:00",
+      "checkpoints": [
+        {"name": "T-48h", "time": "2026-05-04T19:00:00+00:00"},
+        {"name": "T-60m", "time": "2026-05-06T18:00:00+00:00"}
+      ],
+      "base_xg": {"team_a": 1.48, "team_b": 1.30},
+      "lineup_updates": [
+        {
+          "id": "bayern-psg-projected",
+          "category": "lineup",
+          "confidence": "projected",
+          "observed_at": "2026-05-04T12:20:00+00:00",
+          "effective_at": "2026-05-06T18:00:00+00:00",
+          "team_a_xg_delta": 0.0,
+          "team_b_xg_delta": 0.0,
+          "note": "Projected Bayern chasing game state."
+        },
+        {
+          "id": "bayern-psg-confirmed",
+          "category": "lineup",
+          "confidence": "confirmed",
+          "observed_at": "2026-05-06T17:56:00+00:00",
+          "team_a_xg_delta": -0.06,
+          "team_b_xg_delta": 0.02,
+          "note": "Confirmed Bayern lineup slightly reduces attacking projection."
+        }
+      ],
+      "injury_updates": [],
+      "odds_snapshots": [
+        {
+          "id": "bayern-psg-odds-open",
+          "category": "odds",
+          "observed_at": "2026-05-04T19:00:00+00:00",
+          "h2h": {"team_a_win": 2.08, "draw": 3.75, "team_b_win": 3.25},
+          "totals": {"over_2_5": 1.70, "under_2_5": 2.18}
+        },
+        {
+          "id": "bayern-psg-odds-lineup",
+          "category": "odds",
+          "observed_at": "2026-05-06T17:59:00+00:00",
+          "h2h": {"team_a_win": 2.18, "draw": 3.65, "team_b_win": 3.10},
+          "totals": {"over_2_5": 1.76, "under_2_5": 2.08}
+        }
+      ],
+      "result": {"team_a_goals": 1, "team_b_goals": 1}
+    }
+  ]
+}

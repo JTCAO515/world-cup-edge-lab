@@ -1,0 +1,12 @@
+[project]
+name = "football-predictor"
+version = "0.1.0"
+description = "Local football betting-assist backtest lab"
+requires-python = ">=3.9"
+
+[project.scripts]
+football-backtest = "football_predictor.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
